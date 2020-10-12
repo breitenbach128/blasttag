@@ -26,12 +26,22 @@ function preload() {
     //Map Assets  
     this.load.tilemapTiledJSON('map1', 'assets/map1.json'); 
     this.load.spritesheet('tileset', 'assets/tileset.png', {frameWidth: 16, frameHeight: 16});
+
+    //Load Effects
+    this.load.spritesheet('explosion1', 'assets/explosion1.png', {frameWidth: 64, frameHeight: 64});
+
+    //Load Equipment
+    this.load.spritesheet('missle', 'assets/missle.png', {frameWidth: 32, frameHeight: 32});
 }
 
 function create() {
     var self = this;
     this.socket = io();
+    //Physics Groups
     this.players = this.physics.add.group();
+    this.walls = this.physics.add.staticGroup();
+    this.missles = this.physics.add.group();
+    //Create Controls
     this.controls = createControls(self);
     this.socket.on('currentPlayers', function (players) {
         Object.keys(players).forEach(function (id) {
@@ -64,9 +74,18 @@ function create() {
                     //Anims
                     if(players[id].input[1] < 0){
                         player.anims.play('player-walk-up',true);
+                        player.direction = 'up';
                     }else if (players[id].input[1] > 0){
                         player.anims.play('player-walk-down',true);
+                        player.direction = 'down;'
+                    }else if(players[id].input[0] < 0){
+                        player.anims.play('player-walk-left',true);
+                        player.direction = 'left';
+                    }else if (players[id].input[0] > 0){
+                        player.anims.play('player-walk-right',true);
+                        player.direction = 'right;'
                     }else{
+                        //If it was walking up, play idle up. if walking down, play idle down
                         player.anims.play('player-idle-down',true);
 
                     }
@@ -81,8 +100,8 @@ function create() {
     //Collision Layer
     let hullsLayer = this.map.getObjectLayer('walls');
     hullsLayer.objects.forEach(e=>{
-        let shapeObject = this.add.rectangle(e.x + (e.width / 2), e.y + (e.height / 2),e.width, e.height,0xFF0000,0.3).setDepth(100);        
-        this.physics.add.existing(shapeObject);
+        let shapeObject = this.add.rectangle(e.x + (e.width / 2), e.y + (e.height / 2),e.width, e.height,0xFF0000,0.0).setDepth(100);        
+        this.walls.add(shapeObject);
     });
 
     //Creat animations
@@ -115,7 +134,10 @@ function update() {
     if(this.controls.D.b.isDown){
         moveState[0]+= 1;
     }
-
+    //Missle
+    if(this.controls.K.b.isDown && this.controls.K.b.repeats == 0){
+        this.socket.emit('playerMissle', {});
+    }
 
     if(this.prevMoveState[0] != moveState[0] || this.prevMoveState[1] != moveState[1]){
         this.socket.emit('playerInput', moveState);
@@ -123,12 +145,15 @@ function update() {
 
 
     this.prevMoveState = moveState;
+    
 
 }
+
 function displayPlayers(self, playerInfo, sprite) {
     const player = self.add.sprite(playerInfo.x, playerInfo.y, sprite).setOrigin(0.5, 0.5).setDisplaySize(48, 48);
     // if (playerInfo.team === 'blue') player.setTint(0x0000ff);
     // else player.setTint(0xff0000);
+    player.direction = 'down';
     player.playerId = playerInfo.playerId;
     self.players.add(player);    
     player.body.setSize(20,18,false);
@@ -139,12 +164,14 @@ function createControls(scene){
         W: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.W),s:0},
         S: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),s:0},
         A: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),s:0},
-        D: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),s:0}
+        D: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),s:0},
+        K: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.K),s:0}
     }
     return controls;
 }
 
 function createAnims(scene){
+    //Player
     scene.anims.create({
         key: 'player-idle-down',
         frames: scene.anims.generateFrameNumbers('player', { frames:[0] }),
@@ -160,6 +187,32 @@ function createAnims(scene){
     scene.anims.create({
         key: 'player-walk-up',
         frames: scene.anims.generateFrameNumbers('player', { frames:[4,5] }),
+        frameRate: 16,
+        repeat: 0
+    });
+    scene.anims.create({
+        key: 'player-walk-left',
+        frames: scene.anims.generateFrameNumbers('player', { frames:[10,11,12,13] }),
+        frameRate: 16,
+        repeat: 0
+    });
+    scene.anims.create({
+        key: 'player-walk-right',
+        frames: scene.anims.generateFrameNumbers('player', { frames:[6,7,8,9] }),
+        frameRate: 16,
+        repeat: 0
+    });
+    //Equipment
+    scene.anims.create({
+        key: 'missle-fly',
+        frames: scene.anims.generateFrameNumbers('player', { frames:[1,2] }),
+        frameRate: 16,
+        repeat: 0
+    });
+    //Effects
+    scene.anims.create({
+        key: 'explosion-1',
+        frames: scene.anims.generateFrameNumbers('explosion1', { frames:[0,1,2,3,4,5,6] }),
         frameRate: 16,
         repeat: 0
     });

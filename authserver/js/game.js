@@ -62,6 +62,9 @@ const config = {
             intData = convertArrayStringToInteger(inputData);
             handlePlayerInput(self, socket.id, intData);
         });
+        socket.on('playerMissle', function (data) {
+;           launchMissle(self, socket.id, data);
+        });
     });
     this.physics.world.setBounds(0,0,320,320);
     //Create Map
@@ -97,9 +100,29 @@ const config = {
     self.players.getChildren().forEach((player) => {
       if (playerId === player.playerId) {
         players[player.playerId].input = input;
+        //Add direction code here so I have a history
         
       }
     });
+  }
+  function launchMissle(self, playerId, data){
+      console.log("Missle Launched");
+    self.players.getChildren().forEach((player) => {
+        if (playerId === player.playerId) {
+            let inputVec2 = players[player.playerId].input;
+            if(inputVec2[1] < 0){
+                direction = 'up';
+            }else if (inputVec2[1] > 0){
+                direction = 'down;'
+            }else if(inputVec2[0] < 0){
+                direction = 'left';
+            }else if (inputVec2[0] > 0){;
+                direction = 'right;'
+            }else{  
+                direction = 'down;'
+            }
+        }
+      });
   }
   function convertArrayStringToInteger(a){
     var result = a.map(function (x) { 

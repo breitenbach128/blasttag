@@ -3,8 +3,8 @@ const players = {};
 const config = {
     type: Phaser.HEADLESS,
     parent: 'phaser-example',
-    width: 800,
-    height: 600,
+    width: 640,
+    height: 640,
     autoFocus: false,
     physics: {
       default: 'arcade',
@@ -23,11 +23,13 @@ const config = {
   function preload() {
       //Preloads
       this.load.spritesheet('player', 'assets/player.png',{frameWidth: 24, frameHeight: 24});
+      this.load.tilemapTiledJSON('map1', 'assets/map1.json'); 
   }
    
   function create() {
     const self = this;
     this.players = this.physics.add.group();
+    this.walls = this.physics.add.staticGroup();
 
     io.on('connection', function (socket) {
         console.log('a user connected');        
@@ -35,8 +37,8 @@ const config = {
         // create a new player and add it to our players object
         players[socket.id] = {
             rotation: 0,
-            x: Math.floor(Math.random() * 700) + 50,
-            y: Math.floor(Math.random() * 500) + 50,
+            x: Math.floor(Math.random() * 280) + 24,
+            y: Math.floor(Math.random() * 280) + 24,
             playerId: socket.id,
             team: (Math.floor(Math.random() * 2) == 0) ? 'red' : 'blue',
             input: [0,0] // X,Y vector
@@ -61,7 +63,21 @@ const config = {
             handlePlayerInput(self, socket.id, intData);
         });
     });
-
+    this.physics.world.setBounds(0,0,320,320);
+    //Create Map
+    this.map = this.make.tilemap({key: 'map1'});  
+    // let tsImage = this.map.addTilesetImage('tileset','tileset',16,16,0,0);
+    // this.map.createStaticLayer('main', tsImage, 0, 0).setDepth(0);
+    //Collision Layer
+    let hullsLayer = this.map.getObjectLayer('walls');
+    hullsLayer.objects.forEach(e=>{
+        let shapeObject = this.add.rectangle(e.x + (e.width / 2), e.y + (e.height / 2),e.width, e.height,0xFF0000,0.3).setDepth(100);
+        //this.physics.add.existing(shapeObject);
+        this.walls.add(shapeObject);
+        //shapeObject.setImmovable(true);
+    });
+    //setup Collision
+    this.physics.add.collider(this.players, this.walls);
   }
    
   function update() {
@@ -98,6 +114,9 @@ const config = {
     player.setMaxVelocity(200);
     player.playerId = playerInfo.playerId;
     self.players.add(player);
+    //Adjust offsets
+    player.body.setSize(20,18,false);
+    player.body.setOffset(2,6);
   }
 
   function removePlayer(self, playerId) {

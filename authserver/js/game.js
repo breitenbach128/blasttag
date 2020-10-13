@@ -1,7 +1,9 @@
 const players = {};
 var missleUID = 0;
+var gooUID = 0;
 var newPlayerUID = 0;
 var explosionQueue = [];
+var splatQueue = [];
 
 const config = {
     type: Phaser.HEADLESS,
@@ -29,6 +31,8 @@ function preload() {
     this.load.tilemapTiledJSON('map1', 'assets/map1.json');
     //Equipment
     this.load.spritesheet('missle', 'assets/missle.png', { frameWidth: 32, frameHeight: 32 });
+    this.load.spritesheet('goo', 'assets/goo.png', { frameWidth: 32, frameHeight: 32 });    
+    this.load.spritesheet('goosplat', 'assets/goosplat16.png', { frameWidth: 16, frameHeight: 16 });
 }
 
 function create() {
@@ -104,6 +108,8 @@ function create() {
     this.physics.add.collider(this.players, this.walls, playerWallImpact);
     this.physics.add.collider(this.missles, this.walls, missleHit);
     this.physics.add.overlap(this.missles, this.players, missleHitPlayer);
+    this.physics.add.collider(this.globs, this.walls, gooHit);
+    this.physics.add.collider(this.globs, this.players, gooHitPlayer,function(){},this);
 }
 
 function update() {
@@ -124,11 +130,16 @@ function update() {
     this.missles.getChildren().forEach((m) => {
         missles.push({nid:m.nid,x:m.x,y:m.y});
     });
-    let netobject = {players: players, missles: missles, explosions: explosionQueue};
+    let globs = [];
+    this.globs.getChildren().forEach((g) => {
+        globs.push({nid:g.nid,x:g.x,y:g.y});
+    });
+    let netobject = {players: players, missles: missles, explosions: explosionQueue, globs:globs, splats: splatQueue};
     io.emit('playerUpdates', netobject);
     
     //Clear explosion queue
     explosionQueue = [];
+    splatQueue = [];
 }
 
 function handlePlayerInput(self, playerId, input) {
@@ -147,7 +158,21 @@ function playerWallImpact(player, wall){
     player.walltouch = true;
 }
 function launchGoo(self, playerId, data) {
+    self.players.getChildren().forEach((player) => {
+        if (playerId === player.playerId) {
 
+            let inputVec2 = players[player.playerId].aim;
+            let newGoo = self.physics.add.sprite(players[player.playerId].x, players[player.playerId].y, 'goo').setOrigin(0.5, 0.5).setDisplaySize(16, 16);  
+            newGoo.nid = gooUID;
+            newGoo.ownerid = playerId;
+            self.globs.add(newGoo);
+            let speed = 130;
+            newGoo.setVelocity(inputVec2[0]*speed, inputVec2[1]*speed);
+            //Emit for all players
+            io.emit('gooFired', {nid:gooUID,ownerid:playerId,x:newGoo.x,y:newGoo.y,rot:newGoo.rotation});
+            gooUID++;
+        }
+    });
 }
 function launchMissle(self, playerId, data) {
 
@@ -182,6 +207,24 @@ function missleHit(missle, wall) {
     //missle.disableBody(true, true);
     explosionQueue.push({nid:missle.nid,x:missle.x,y:missle.y});
     missle.destroy();
+}
+function gooHit(goo, wall) {
+    splatQueue.push({nid:goo.nid,x:goo.x,y:goo.y});
+    let splatCircle = new Phaser.Geom.Circle(goo.x,goo.y,32);//128 radius
+    let map = game.scene.scenes[0].map;
+    let tilesInRadius = map.getTilesWithinShape(splatCircle);
+    tilesInRadius.forEach(t=>{
+        console.log(t.x,t.y);
+    });
+    //On server, create a single circle entity.
+    //ON the clients, draw the tiles with splats. Random frames.
+    goo.destroy();
+}
+function gooHitPlayer(goo, player) {
+    if(goo.ownerid != player.playerId){
+        splatQueue.push({nid:goo.nid,x:goo.x,y:goo.y});
+        goo.destroy();
+    }
 }
 function convertArrayStringToInteger(a) {
     var result = a.map(function (x) {

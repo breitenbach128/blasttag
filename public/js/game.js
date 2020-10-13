@@ -55,9 +55,11 @@ function preload() {
 
     //Load Effects
     this.load.spritesheet('explosion1', 'assets/explosion1.png', {frameWidth: 64, frameHeight: 64});
+    this.load.spritesheet('goosplat', 'assets/goosplat16.png', { frameWidth: 16, frameHeight: 16 });
 
     //Load Equipment
-    this.load.spritesheet('missle', 'assets/missle.png', {frameWidth: 32, frameHeight: 32});
+    this.load.spritesheet('missle', 'assets/missle.png', {frameWidth: 32, frameHeight: 32});    
+    this.load.spritesheet('goo', 'assets/goo.png', { frameWidth: 32, frameHeight: 32 });    
 }
 
 function create() {
@@ -69,6 +71,7 @@ function create() {
     this.players = this.physics.add.group();
     this.walls = this.physics.add.staticGroup();
     this.missles = this.physics.add.group();
+    this.globs = this.physics.add.group();
     //Create Controls
     this.controls = createControls(self);
     this.socket.on('currentPlayers', function (players) {
@@ -102,12 +105,10 @@ function create() {
         self.missles.add(newMissle);
     });
     this.socket.on('gooFired', function (data) {
-        let newMissle = self.physics.add.sprite(data.x, data.y, 'missle').setOrigin(0.5, 0.5).setDisplaySize(16, 16);
-        newMissle.setRotation(data.rot);
-        newMissle.anims.play('missle-fly',true);
-        newMissle.nid = data.nid;
-        newMissle.ownerid = data.ownerid;
-        self.missles.add(newMissle);
+        let newGoo = self.physics.add.sprite(data.x, data.y, 'goo').setOrigin(0.5, 0.5).setDisplaySize(16, 16); 
+        newGoo.nid = data.nid;
+        newGoo.ownerid = data.ownerid;
+        self.globs.add(newGoo);
     });
     this.socket.on('playerUpdates', function (netobject) {
         let players = netobject.players;
@@ -153,6 +154,20 @@ function create() {
                 if (missle.nid === e.nid) {
                     missle.destroy();
                     createExplosion(self,e.x,e.y);
+                } 
+            })
+        });
+        let globs = netobject.globs;
+        let splats = netobject.splats;
+        self.globs.getChildren().forEach(function (glob) {
+            globs.forEach(g =>{
+                if (glob.nid === g.nid) {
+                    glob.setPosition(g.x,g.y);
+                } 
+            })
+            splats.forEach(s =>{
+                if (glob.nid === s.nid) {
+                    glob.destroy();
                 } 
             })
         });

@@ -1,13 +1,13 @@
 var config = {
     type: Phaser.AUTO,
-    parent: 'phaser-example',
+    parent: 'game',
     width: 640,
     height: 640,  
     pixelArt: true,  
     physics: {
         default: 'arcade',
         arcade: {
-          debug: true,
+          debug: false,
           gravity: { y: 0 }
         }
       },
@@ -64,8 +64,16 @@ function create() {
             }
         });
     });
-    
-    this.socket.on('playerUpdates', function (players) {
+    this.socket.on('missleFired', function (data) {
+        let newMissle = self.physics.add.sprite(data.x, data.y, 'missle').setOrigin(0.5, 0.5).setDisplaySize(16, 16);
+        newMissle.setRotation(data.rot);
+        newMissle.anims.play('missle-fly',true);
+        newMissle.nid = data.nid;
+        newMissle.ownerid = data.ownerid;
+        self.missles.add(newMissle);
+    });
+    this.socket.on('playerUpdates', function (netobject) {
+        let players = netobject.players;
         Object.keys(players).forEach(function (id) {
             self.players.getChildren().forEach(function (player) {
                 if (players[id].playerId === player.playerId) {
@@ -92,6 +100,21 @@ function create() {
                 }
             });
         });
+        let missles = netobject.missles;
+        let explosions = netobject.explosions;
+        self.missles.getChildren().forEach(function (missle) {
+            missles.forEach(m =>{
+                if (missle.nid === m.nid) {
+                    missle.setPosition(m.x,m.y);
+                } 
+            })
+            explosions.forEach(e =>{
+                if (missle.nid === e.nid) {
+                    missle.destroy();
+                    createExplosion(self,e.x,e.y);
+                } 
+            })
+        });
     });
     //Create Map
     this.map = this.make.tilemap({key: 'map1'});  
@@ -114,6 +137,9 @@ function create() {
     this.cameras.main.roundPixels = true;
     this.cameras.main.setZoom(2.00);
 
+    //Local Simulation for improvement of timing
+    this.physics.add.overlap(this.missles, this.walls, missleHit);
+
 }
 
 function update() { 
@@ -135,20 +161,34 @@ function update() {
         moveState[0]+= 1;
     }
     //Missle
-    if(this.controls.K.b.isDown && this.controls.K.b.repeats == 0){
+    if(this.controls.K.b.isDown && this.controls.K.s == 0){        
         this.socket.emit('playerMissle', {});
+        this.controls.K.s++;
     }
 
+    if(!this.controls.K.b.isDown){
+        this.controls.K.s=0;
+    }
+    //CHeck State Change for movement
     if(this.prevMoveState[0] != moveState[0] || this.prevMoveState[1] != moveState[1]){
         this.socket.emit('playerInput', moveState);
     }
 
-
+    //Save last movement
     this.prevMoveState = moveState;
     
 
 }
-
+function missleHit(missle, wall) {
+    //missle.disableBody(true, true);
+    console.log("Missle Hit Wall, Destroyed.",missle.nid);
+    missle.destroy();
+}
+function createExplosion(self,x,y){
+    let exp = self.add.sprite(x, y, 'explosion1').setOrigin(0.5,0.5);
+    exp.anims.play('explosion-1',true);
+    exp.on('animationcomplete', function(){exp.destroy()}, this);
+}
 function displayPlayers(self, playerInfo, sprite) {
     const player = self.add.sprite(playerInfo.x, playerInfo.y, sprite).setOrigin(0.5, 0.5).setDisplaySize(48, 48);
     // if (playerInfo.team === 'blue') player.setTint(0x0000ff);
@@ -205,9 +245,9 @@ function createAnims(scene){
     //Equipment
     scene.anims.create({
         key: 'missle-fly',
-        frames: scene.anims.generateFrameNumbers('player', { frames:[1,2] }),
+        frames: scene.anims.generateFrameNumbers('missle', { frames:[1,2] }),
         frameRate: 16,
-        repeat: 0
+        repeat: -1
     });
     //Effects
     scene.anims.create({

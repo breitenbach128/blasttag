@@ -12,8 +12,26 @@
                 width: 640px;
                 height: 640px;
             }
+            #hudbar1 {
+                padding-left: 0;
+                padding-right: 0;
+                margin-left: auto;
+                margin-right: auto;
+                display: block;
+                width: 640px;
+                height: 32px;
+                border: 2px solid rgb(138, 32, 32);
+                background-color:  rgb(88, 48, 48);
+            }
             body {
                 background-color: black;
+            }
+            @font-face {
+                font-family: 'visitorTT1';
+                src: url('assets/fonts/visitor/VisitorTT1BRK.eot');
+                src: local('☺'), url('assets/fonts/visitor/VisitorTT1BRK.woff') format('woff'), url('assets/fonts/visitor/visitor1.ttf') format('truetype'), url('assets/fonts/visitor/VisitorTT1BRK.svg') format('svg');
+                font-weight: normal;
+                font-style: normal;
             }
         </style>
     </head>
@@ -21,6 +39,8 @@
         <script src="/socket.io/socket.io.js"></script>
         <script src="phaser_3_23.js"></script>
         <script src="js/game.js"></script>
+        <div class="fontLoader" style="font-family: visitorTT1;">-</div>
         <div id="game"></div>
+        <div id="hudbar1"></div>
     </body>
 </html>

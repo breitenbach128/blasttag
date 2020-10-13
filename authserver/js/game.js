@@ -1,5 +1,6 @@
 const players = {};
 var missleUID = 0;
+var newPlayerUID = 0;
 var explosionQueue = [];
 
 const config = {
@@ -34,7 +35,10 @@ function create() {
     const self = this;
     this.players = this.physics.add.group();
     this.missles = this.physics.add.group();
+    this.traps = this.physics.add.group();
+    this.globs = this.physics.add.group();
     this.walls = this.physics.add.staticGroup();
+    this.pickups = this.physics.add.group();
 
     io.on('connection', function (socket) {
         console.log('a user connected');
@@ -45,9 +49,13 @@ function create() {
             x: Math.floor(Math.random() * 280) + 24,
             y: Math.floor(Math.random() * 280) + 24,
             playerId: socket.id,
+            uid: 0,
             team: (Math.floor(Math.random() * 2) == 0) ? 'red' : 'blue',
             input: [0, 0], // X,Y vector
-            aim: [0,1] 
+            aim: [0,1],
+            score: 0,
+            bombtime: -1,
+            condition: 0,//0 - Normal, 2 - Slowed, 4 - Stunned
         };
         // add player to server
         addPlayer(self, players[socket.id]);
@@ -69,7 +77,10 @@ function create() {
             handlePlayerInput(self, socket.id, intData);
         });
         socket.on('playerMissle', function (data) {
-            ; launchMissle(self, socket.id, data);
+            launchMissle(self, socket.id, data);
+        });
+        socket.on('playerGoo', function (data) {
+            launchGoo(self, socket.id, data);
         });
     });
     this.physics.world.setBounds(0, 0, 320, 320);
@@ -85,8 +96,12 @@ function create() {
         this.walls.add(shapeObject);
         //shapeObject.setImmovable(true);
     });
+    //Object Spawners
+    //Fuses and pickups
+
+
     //setup Collision
-    this.physics.add.collider(this.players, this.walls);
+    this.physics.add.collider(this.players, this.walls, playerWallImpact);
     this.physics.add.collider(this.missles, this.walls, missleHit);
     this.physics.add.overlap(this.missles, this.players, missleHitPlayer);
 }
@@ -100,6 +115,9 @@ function update() {
         players[player.playerId].x = player.x;
         players[player.playerId].y = player.y;
         players[player.playerId].rotation = player.rotation;
+        //Set Statues back to false here;
+        player.walltouch = false;
+
     });
     this.physics.world.wrap(this.players, 5);
     let missles = [];
@@ -123,6 +141,13 @@ function handlePlayerInput(self, playerId, input) {
             }
         }
     });
+}
+function playerWallImpact(player, wall){
+    //example for status settings for collision
+    player.walltouch = true;
+}
+function launchGoo(self, playerId, data) {
+
 }
 function launchMissle(self, playerId, data) {
 
@@ -150,6 +175,7 @@ function missleHitPlayer(missle, player) {
     if(missle.ownerid != player.playerId){
         explosionQueue.push({nid:missle.nid,x:missle.x,y:missle.y});
         missle.destroy();
+        players[missle.ownerid].score++;
     }
 }
 function missleHit(missle, wall) {
@@ -164,15 +190,21 @@ function convertArrayStringToInteger(a) {
     return result;
 }
 function addPlayer(self, playerInfo) {
+    newPlayerUID++;
     const player = self.physics.add.sprite(playerInfo.x, playerInfo.y, 'player').setOrigin(0.5, 0.5).setDisplaySize(48, 48);
     // player.setDrag(100);
     // player.setAngularDrag(100);
     player.setMaxVelocity(200);
     player.playerId = playerInfo.playerId;
+    player.uid = playerInfo.uid;
     self.players.add(player);
     //Adjust offsets
     player.body.setSize(20, 18, false);
     player.body.setOffset(2, 6);
+
+    //Update Data List    
+    players[playerInfo.playerId].uid = newPlayerUID;
+    
 }
 
 function removePlayer(self, playerId) {

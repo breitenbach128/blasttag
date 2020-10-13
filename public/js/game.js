@@ -1,3 +1,28 @@
+var HudScene = new Phaser.Class({
+
+    Extends: Phaser.Scene,
+
+    initialize:
+
+    function HudScene ()
+    {
+        Phaser.Scene.call(this, { key: 'HudScene', active: true });
+
+    },
+    preload: function(){
+        this.gameScore = 0;
+    },
+    create: function ()
+    {
+        this.txtScore = this.add.text(50, 50, "Score: "+this.gameScore.toString(), { fontFamily: 'visitorTT1', resolution: 1 })
+
+    },
+    update:function(){
+
+    }
+
+});
+//Setup Game Config
 var config = {
     type: Phaser.AUTO,
     parent: 'game',
@@ -11,13 +36,14 @@ var config = {
           gravity: { y: 0 }
         }
       },
-    scene: {
+    scene: [{
         preload: preload,
         create: create,
         update: update
-    }
+    }, HudScene]
 };
 
+//Launch Game
 var game = new Phaser.Game(config);
 
 function preload() {
@@ -37,6 +63,8 @@ function preload() {
 function create() {
     var self = this;
     this.socket = io();
+    //get hud for quick access
+    this.hud = game.scene.getScene('HudScene');
     //Physics Groups
     this.players = this.physics.add.group();
     this.walls = this.physics.add.staticGroup();
@@ -60,11 +88,20 @@ function create() {
     this.socket.on('disconnect', function (playerId) {
         self.players.getChildren().forEach(function (player) {
             if (playerId === player.playerId) {
+                player.nametext.destroy();
                 player.destroy();
             }
         });
     });
     this.socket.on('missleFired', function (data) {
+        let newMissle = self.physics.add.sprite(data.x, data.y, 'missle').setOrigin(0.5, 0.5).setDisplaySize(16, 16);
+        newMissle.setRotation(data.rot);
+        newMissle.anims.play('missle-fly',true);
+        newMissle.nid = data.nid;
+        newMissle.ownerid = data.ownerid;
+        self.missles.add(newMissle);
+    });
+    this.socket.on('gooFired', function (data) {
         let newMissle = self.physics.add.sprite(data.x, data.y, 'missle').setOrigin(0.5, 0.5).setDisplaySize(16, 16);
         newMissle.setRotation(data.rot);
         newMissle.anims.play('missle-fly',true);
@@ -99,6 +136,10 @@ function create() {
                     }
                 }
             });
+            if(players[id].playerId == self.socket.id){
+                let gs = self.hud.gameScore = players[id].score;
+                self.hud.txtScore.setText("Score: "+gs.toString());
+            }
         });
         let missles = netobject.missles;
         let explosions = netobject.explosions;
@@ -165,9 +206,16 @@ function update() {
         this.socket.emit('playerMissle', {});
         this.controls.K.s++;
     }
-
     if(!this.controls.K.b.isDown){
         this.controls.K.s=0;
+    }
+    //Goo
+    if(this.controls.J.b.isDown && this.controls.J.s == 0){        
+        this.socket.emit('playerGoo', {});
+        this.controls.J.s++;
+    }
+    if(!this.controls.J.b.isDown){
+        this.controls.J.s=0;
     }
     //CHeck State Change for movement
     if(this.prevMoveState[0] != moveState[0] || this.prevMoveState[1] != moveState[1]){
@@ -176,7 +224,9 @@ function update() {
 
     //Save last movement
     this.prevMoveState = moveState;
-    
+    this.players.getChildren().forEach(function (player) {
+        player.nametext.setPosition(player.x,player.y);
+    })
 
 }
 function missleHit(missle, wall) {
@@ -193,8 +243,10 @@ function displayPlayers(self, playerInfo, sprite) {
     const player = self.add.sprite(playerInfo.x, playerInfo.y, sprite).setOrigin(0.5, 0.5).setDisplaySize(48, 48);
     // if (playerInfo.team === 'blue') player.setTint(0x0000ff);
     // else player.setTint(0xff0000);
+    player.nametext = self.add.text(playerInfo.x, playerInfo.y, playerInfo.uid.toString(), { fontFamily: 'visitorTT1', resolution: 2 }).setOrigin(0.5,-1.5);
     player.direction = 'down';
     player.playerId = playerInfo.playerId;
+    player.uid = playerInfo.uid;
     self.players.add(player);    
     player.body.setSize(20,18,false);
     player.body.setOffset(2,6);
@@ -205,7 +257,9 @@ function createControls(scene){
         S: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.S),s:0},
         A: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.A),s:0},
         D: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.D),s:0},
+        J: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.J),s:0},
         K: {b:scene.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.K),s:0}
+
     }
     return controls;
 }

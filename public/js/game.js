@@ -1,3 +1,12 @@
+//Globals
+var DEPTH_LAYERS = {
+    background: 0,
+    tiles: 100,
+    objects: 150,
+    players: 200,
+    foreground: 300,
+}
+
 var HudScene = new Phaser.Class({
 
     Extends: Phaser.Scene,
@@ -10,15 +19,33 @@ var HudScene = new Phaser.Class({
 
     },
     preload: function(){
+        this.load.image('hud_fuse', 'assets/hud_fuse.png');
+        this.load.spritesheet('particles_fuse', 'assets/particles_fuse.png',{ frameWidth: 4, frameHeight: 4 });
         this.gameScore = 0;
     },
     create: function ()
     {
         this.txtScore = this.add.text(50, 50, "Score: "+this.gameScore.toString(), { fontFamily: 'visitorTT1', resolution: 1 })
+        this.fuse = this.add.image(32,32,'hud_fuse').setOrigin(0,0)
+        //Create Fuse Particles
+        this.sparkerMgr = this.add.particles('particles_fuse');
+        this.sparkler = this.sparkerMgr.createEmitter({
+            active:true,
+            frequency: 60, 
+            x: this.fuse.getRightCenter().x,
+            y: this.fuse.getRightCenter().y,
+            speed: { min: 35, max: 45 },
+            scale: { start: 0.3, end: 0.0 },
+            lifespan: 500,
+            blendMode: 'ADD'
+        });
 
     },
     update:function(){
 
+    },
+    updateFuse: function(){
+        
     }
 
 });
@@ -72,6 +99,7 @@ function create() {
     this.walls = this.physics.add.staticGroup();
     this.missles = this.physics.add.group();
     this.globs = this.physics.add.group();
+    this.splats = this.physics.add.group();
     //Create Controls
     this.controls = createControls(self);
     this.socket.on('currentPlayers', function (players) {
@@ -142,35 +170,67 @@ function create() {
                 self.hud.txtScore.setText("Score: "+gs.toString());
             }
         });
-        let missles = netobject.missles;
-        let explosions = netobject.explosions;
+        let netMissles = netobject.missles;
+        let netExplosions = netobject.explosions;
         self.missles.getChildren().forEach(function (missle) {
-            missles.forEach(m =>{
+            netMissles.forEach(m =>{
                 if (missle.nid === m.nid) {
                     missle.setPosition(m.x,m.y);
                 } 
             })
-            explosions.forEach(e =>{
+            netExplosions.forEach(e =>{
                 if (missle.nid === e.nid) {
                     missle.destroy();
                     createExplosion(self,e.x,e.y);
                 } 
             })
         });
-        let globs = netobject.globs;
-        let splats = netobject.splats;
+        let netGlobs = netobject.globs;
+        let netSplats = netobject.splats;
         self.globs.getChildren().forEach(function (glob) {
-            globs.forEach(g =>{
+            netGlobs.forEach(g =>{
                 if (glob.nid === g.nid) {
                     glob.setPosition(g.x,g.y);
                 } 
             })
-            splats.forEach(s =>{
+            netSplats.forEach(s =>{
                 if (glob.nid === s.nid) {
+
+                    let splatCircle = new Phaser.Geom.Circle(s.x,s.y,32);//128 radius
+                    let map = self.map;
+                    let tilesInRadius = map.getTilesWithinShape(splatCircle);
+                    let tempNid =  s.nid;
+                    tilesInRadius.forEach(t=>{
+                        //create goo splats                        
+                        let splat = self.add.image((t.x*16)+8,(t.y*16)+8,'goosplat').setOrigin(0.5,0.5).setFrame(Phaser.Math.Between(0,2)).setDepth(DEPTH_LAYERS.objects);
+                        splat.nid = tempNid;
+                        self.splats.add(splat);
+                    });
+
+
                     glob.destroy();
                 } 
             })
         });
+        let removeSplats = netobject.removeSplats;
+        let splatKillList = [];
+        removeSplats.forEach(s =>{            
+            self.splats.getChildren().forEach(function (splat) {
+                
+                if (splat.nid === s.nid) {
+                    splatKillList.push(splat);
+                }
+            });   
+        });
+
+        if(splatKillList.length > 0){
+            splatKillList.forEach(s =>{   
+                self.splats.remove(s,true,true);
+            })
+            
+        }
+
+
     });
     //Create Map
     this.map = this.make.tilemap({key: 'map1'});  
@@ -255,10 +315,10 @@ function createExplosion(self,x,y){
     exp.on('animationcomplete', function(){exp.destroy()}, this);
 }
 function displayPlayers(self, playerInfo, sprite) {
-    const player = self.add.sprite(playerInfo.x, playerInfo.y, sprite).setOrigin(0.5, 0.5).setDisplaySize(48, 48);
+    const player = self.add.sprite(playerInfo.x, playerInfo.y, sprite).setOrigin(0.5, 0.5).setDisplaySize(48, 48).setDepth(DEPTH_LAYERS.players);
     // if (playerInfo.team === 'blue') player.setTint(0x0000ff);
     // else player.setTint(0xff0000);
-    player.nametext = self.add.text(playerInfo.x, playerInfo.y, playerInfo.uid.toString(), { fontFamily: 'visitorTT1', resolution: 2 }).setOrigin(0.5,-1.5);
+    player.nametext = self.add.text(playerInfo.x, playerInfo.y, playerInfo.uid.toString(), { fontFamily: 'visitorTT1', resolution: 2 }).setOrigin(0.5,-1.5).setDepth(DEPTH_LAYERS.players);
     player.direction = 'down';
     player.playerId = playerInfo.playerId;
     player.uid = playerInfo.uid;

@@ -4,10 +4,14 @@ var gooUID = 0;
 var newPlayerUID = 0;
 var explosionQueue = [];
 var splatQueue = [];
+var gameScene;
+var bombTimer = {time: 3000,max:3000};
+var gameStarted = false;
+var bombOwner = -1;//Player who owns the bomb
 
 const config = {
     type: Phaser.HEADLESS,
-    parent: 'phaser-example',
+    parent: 'game',
     width: 640,
     height: 640,
     autoFocus: false,
@@ -37,10 +41,12 @@ function preload() {
 
 function create() {
     const self = this;
+    gameScene = this;
     this.players = this.physics.add.group();
     this.missles = this.physics.add.group();
     this.traps = this.physics.add.group();
     this.globs = this.physics.add.group();
+    this.splats = this.physics.add.group();
     this.walls = this.physics.add.staticGroup();
     this.pickups = this.physics.add.group();
 
@@ -110,19 +116,21 @@ function create() {
     this.physics.add.overlap(this.missles, this.players, missleHitPlayer);
     this.physics.add.collider(this.globs, this.walls, gooHit);
     this.physics.add.collider(this.globs, this.players, gooHitPlayer,function(){},this);
+    this.physics.add.overlap(this.splats, this.players, splatHitPlayer,function(){},this);
 }
 
 function update() {
     //Package gamestate for network sending
     this.players.getChildren().forEach((player) => {
         const input = players[player.playerId].input;
-        let speed = 100;
+        let speed = player.isSlowed ? 50 : 100;
         player.setVelocity(input[0] * speed, input[1] * speed);
         players[player.playerId].x = player.x;
         players[player.playerId].y = player.y;
         players[player.playerId].rotation = player.rotation;
         //Set Statues back to false here;
         player.walltouch = false;
+        player.isSlowed = false;
 
     });
     this.physics.world.wrap(this.players, 5);
@@ -134,7 +142,18 @@ function update() {
     this.globs.getChildren().forEach((g) => {
         globs.push({nid:g.nid,x:g.x,y:g.y});
     });
-    let netobject = {players: players, missles: missles, explosions: explosionQueue, globs:globs, splats: splatQueue};
+    let removeSplats = [];
+    this.splats.getChildren().forEach((splat) => {
+        if(splat.lifespan > 0){
+            splat.lifespan--;
+        }else{
+            removeSplats.push({nid:splat.nid});
+            splat.destroy();
+        }
+        
+    });
+
+    let netobject = {players: players, missles: missles, explosions: explosionQueue, globs:globs, splats: splatQueue, removeSplats: removeSplats};
     io.emit('playerUpdates', netobject);
     
     //Clear explosion queue
@@ -209,15 +228,11 @@ function missleHit(missle, wall) {
     missle.destroy();
 }
 function gooHit(goo, wall) {
-    splatQueue.push({nid:goo.nid,x:goo.x,y:goo.y});
-    let splatCircle = new Phaser.Geom.Circle(goo.x,goo.y,32);//128 radius
-    let map = game.scene.scenes[0].map;
-    let tilesInRadius = map.getTilesWithinShape(splatCircle);
-    tilesInRadius.forEach(t=>{
-        console.log(t.x,t.y);
-    });
-    //On server, create a single circle entity.
-    //ON the clients, draw the tiles with splats. Random frames.
+    splatQueue.push({nid:goo.nid,x:goo.x,y:goo.y});    
+    let splatEllipse = gameScene.add.ellipse(goo.x,goo.y,32,32,0xFFFFFF);
+    splatEllipse.nid = goo.nid;
+    splatEllipse.lifespan = 300;
+    gameScene.splats.add(splatEllipse);
     goo.destroy();
 }
 function gooHitPlayer(goo, player) {
@@ -225,6 +240,9 @@ function gooHitPlayer(goo, player) {
         splatQueue.push({nid:goo.nid,x:goo.x,y:goo.y});
         goo.destroy();
     }
+}
+function splatHitPlayer(splat, player){
+    player.isSlowed = true;
 }
 function convertArrayStringToInteger(a) {
     var result = a.map(function (x) {
@@ -240,6 +258,7 @@ function addPlayer(self, playerInfo) {
     player.setMaxVelocity(200);
     player.playerId = playerInfo.playerId;
     player.uid = playerInfo.uid;
+    player.isSlowed = false;
     self.players.add(player);
     //Adjust offsets
     player.body.setSize(20, 18, false);

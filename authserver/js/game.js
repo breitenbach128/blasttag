@@ -73,6 +73,9 @@ function create() {
         socket.emit('currentPlayers', players);
         // update all other players of the new player
         socket.broadcast.emit('newPlayer', players[socket.id]);
+
+        //If at least two players, run start game sequence.
+
         socket.on('disconnect', function () {
             console.log('user disconnected');
             // remove player from server
@@ -81,6 +84,7 @@ function create() {
             delete players[socket.id];
             // emit a message to all players to remove this player
             io.emit('disconnect', socket.id);
+            //If down to 1 player, reset game to unstarted status, and stop bomb timers.
         });
         socket.on('playerInput', function (inputData) {
             intData = convertArrayStringToInteger(inputData);

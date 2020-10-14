@@ -83,7 +83,8 @@ function preload() {
     //Load Effects
     this.load.spritesheet('explosion1', 'assets/explosion1.png', {frameWidth: 64, frameHeight: 64});
     this.load.spritesheet('goosplat', 'assets/goosplat16.png', { frameWidth: 16, frameHeight: 16 });
-
+    this.load.spritesheet('bombalert', 'assets/bombalert.png', { frameWidth: 16, frameHeight: 16 });
+    
     //Load Equipment
     this.load.spritesheet('missle', 'assets/missle.png', {frameWidth: 32, frameHeight: 32});    
     this.load.spritesheet('goo', 'assets/goo.png', { frameWidth: 32, frameHeight: 32 });    
@@ -256,6 +257,11 @@ function create() {
     //Local Simulation for improvement of timing
     this.physics.add.overlap(this.missles, this.walls, missleHit);
 
+    //Countdown Clock Graphics
+    this.countdownclock = this.add.graphics();
+    this.bombalert = this.add.sprite(200,200,'bombalert');
+    this.bombalert.anims.play('bombalert-1');
+    this.cdcTime = 0;
 }
 
 function update() { 
@@ -299,11 +305,30 @@ function update() {
 
     //Save last movement
     this.prevMoveState = moveState;
+    let lastPlayerTemp={x:0,y:0};
     this.players.getChildren().forEach(function (player) {
         player.nametext.setPosition(player.x,player.y);
+        lastPlayerTemp.x = player.x  << 0;
+        lastPlayerTemp.y = player.y-24  << 0;
+        
+        
     })
+    this.bombalert.setPosition(lastPlayerTemp.x,lastPlayerTemp.y);
+    let clockdeg = this.cdcTime.map(0,1000,0,360);
+    this.countdownclock.clear();
+    this.countdownclock.fillStyle(0xFFFFFF, 0.75);
+    this.countdownclock.slice(lastPlayerTemp.x, lastPlayerTemp.y, 8, Phaser.Math.DegToRad(-90), Phaser.Math.DegToRad(clockdeg-90), true);
+    this.countdownclock.fillPath();
+
+    if(this.cdcTime  > 1000){
+        this.cdcTime = 0;
+    }
+    this.cdcTime++;
 
 }
+Number.prototype.map = function (in_min, in_max, out_min, out_max) {
+    return (this - in_min) * (out_max - out_min) / (in_max - in_min) + out_min;
+  }
 function missleHit(missle, wall) {
     //missle.disableBody(true, true);
     console.log("Missle Hit Wall, Destroyed.",missle.nid);
@@ -384,5 +409,11 @@ function createAnims(scene){
         frames: scene.anims.generateFrameNumbers('explosion1', { frames:[0,1,2,3,4,5,6] }),
         frameRate: 16,
         repeat: 0
+    });
+    scene.anims.create({
+        key: 'bombalert-1',
+        frames: scene.anims.generateFrameNumbers('bombalert', { frames:[0,1,2,3,4,5] }),
+        frameRate: 12,
+        repeat: -1
     });
 }

@@ -1,6 +1,8 @@
+/// <reference path="../../def/phaser.d.ts"/>
 const players = {};
 var missleUID = 0;
 var gooUID = 0;
+var pickupUID = 0;
 var newPlayerUID = 0;
 var explosionQueue = [];
 var splatQueue = [];
@@ -8,8 +10,13 @@ var gameScene;
 var bombTimer = {time: 3000,max:3000};
 var gameStarted = false;
 var bombOwner = -1;//Player who owns the bomb
+var transferTimer = 120;
+var gameResetTimer = 0;
 
 var PICKUPTYPES = {
+    missle:1,
+    goo: 2,
+    trap: 3,
     fuse: 4,
 }
 
@@ -56,7 +63,7 @@ function create() {
     this.pickups = this.physics.add.group();
 
     io.on('connection', function (socket) {
-        console.log('a user connected');
+        
 
         // create a new player and add it to our players object
         players[socket.id] = {
@@ -69,18 +76,34 @@ function create() {
             input: [0, 0], // X,Y vector
             aim: [0,1],
             score: 0,
-            bombtime: -1,
+            haveBomb: false,
             condition: 0,//0 - Normal, 2 - Slowed, 4 - Stunned
+            missles: 0,
+            goos: 0,
+            traps: 0
         };
         // add player to server
         addPlayer(self, players[socket.id]);
+        console.log('a user connected',self.players.getLength());
         // send the players object to the new player
-        socket.emit('currentPlayers', players);
+        let pickups = [];
+        self.pickups.getChildren().forEach(e=>{
+            pickups.push({nid:e.nid, pickupType: e.pickupType,x:e.x,y:e.y});
+        });
+        //Which player has the bomb? Only run if there are two players to start the game off.
+
+        socket.emit('currentPlayers', {netplayers:players,netpickups:pickups});
         // update all other players of the new player
         socket.broadcast.emit('newPlayer', players[socket.id]);
 
         //If at least two players, run start game sequence.
-        console.log("Player count",self.players.getLength());
+       if(self.players.getLength() == 2){
+           let currPlayers = self.players.getChildren();
+           let startingBombId = currPlayers[Phaser.Math.Between(0,1)].playerId;
+           players[startingBombId].haveBomb = true;
+           bombOwner = players[startingBombId].uid;
+           startGame(self,socket);
+       };
 
         socket.on('disconnect', function () {
             console.log('user disconnected');
@@ -91,6 +114,13 @@ function create() {
             // emit a message to all players to remove this player
             io.emit('disconnect', socket.id);
             //If down to 1 player, reset game to unstarted status, and stop bomb timers.
+            if(self.players.getLength() == 1){
+                let currPlayers = self.players.getChildren();
+                let startingBombId = currPlayers[0].playerId;
+                players[startingBombId].haveBomb = false;
+                bombOwner = -1;
+                gameStarted = false;
+            }
             
         });
         socket.on('playerInput', function (inputData) {
@@ -127,7 +157,29 @@ function create() {
         let newFuse = this.add.image(spawnTile.x*16+8,spawnTile.y*16+8,'fuse');
         newFuse.pickupType = PICKUPTYPES.fuse;
         newFuse.respawnTimer = -1;//How long until it becomes active again. -1 is active
+        newFuse.nid = pickupUID;
         this.pickups.add(newFuse);
+        pickupUID++;
+    }
+    for(let i=0;i<5;i++){
+        let spawnTile = getMapOpenTile(this.map);
+        //I need a check to ensure those tiles don't have something already on them;
+        let newMissle = this.add.image(spawnTile.x*16+8,spawnTile.y*16+8,'missle');
+        newMissle.pickupType = PICKUPTYPES.missle;
+        newMissle.respawnTimer = -1;//How long until it becomes active again. -1 is active
+        newMissle.nid = pickupUID;
+        this.pickups.add(newMissle);
+        pickupUID++;
+    }
+    for(let i=0;i<5;i++){
+        let spawnTile = getMapOpenTile(this.map);
+        //I need a check to ensure those tiles don't have something already on them;
+        let newGoo = this.add.image(spawnTile.x*16+8,spawnTile.y*16+8,'goo');
+        newGoo.pickupType = PICKUPTYPES.goo;
+        newGoo.respawnTimer = -1;//How long until it becomes active again. -1 is active
+        newGoo.nid = pickupUID;
+        this.pickups.add(newGoo);
+        pickupUID++;
     }
     //setup Collision
     this.physics.add.collider(this.players, this.walls, playerWallImpact);
@@ -136,6 +188,8 @@ function create() {
     this.physics.add.collider(this.globs, this.walls, gooHit);
     this.physics.add.collider(this.globs, this.players, gooHitPlayer,function(){},this);
     this.physics.add.overlap(this.splats, this.players, splatHitPlayer,function(){},this);
+    this.physics.add.overlap(this.players, this.pickups, collectPickup);
+    this.physics.add.collider(this.players, this.players, playersTouched);
 }
 
 function update() {
@@ -143,6 +197,8 @@ function update() {
     this.players.getChildren().forEach((player) => {
         const input = players[player.playerId].input;
         let speed = player.isSlowed ? 50 : 100;
+        speed = players[player.playerId].haveBomb ? speed*1.2 : speed;//Bomb Carriers move 20% faster than others.
+        if(!gameStarted){speed = 0;}//Can't move if game is not started.
         player.setVelocity(input[0] * speed, input[1] * speed);
         players[player.playerId].x = player.x;
         players[player.playerId].y = player.y;
@@ -171,25 +227,56 @@ function update() {
         }
         
     });
+    let pickups = [];
+    this.pickups.getChildren().forEach((p) => {
+        if(p.respawnTimer > 0){p.respawnTimer--;}
+        pickups.push({nid:p.nid,x:p.x,y:p.y,rspt:p.respawnTimer});
+    });
 
-    let netobject = {players: players, missles: missles, explosions: explosionQueue, globs:globs, splats: splatQueue, removeSplats: removeSplats};
+    let netobject = {players: players, missles: missles, explosions: explosionQueue, globs:globs, splats: splatQueue, removeSplats: removeSplats,pickups: pickups,bombTime: bombTimer.time, gameResetTimer:gameResetTimer};
     io.emit('playerUpdates', netobject);
-    
+    //
+    if(transferTimer > 0){transferTimer--};
+    if(bombTimer.time > 0 && gameStarted){bombTimer.time--;}
+    if(bombTimer.time == 0 && gameStarted ){
+        endGame(this);
+    }
+    //Game Resets
+    if(gameResetTimer > 0 && !gameStarted){gameResetTimer--;};
+    if(gameResetTimer == 0 && !gameStarted){startGame()};
     //Clear explosion queue
     explosionQueue = [];
     splatQueue = [];
+}
+function startGame(){
+    //Clear scores and resetup the game
+    gameStarted = true;
+    addBombTime(3000);
+
+}
+function endGame(scene){
+    gameStarted = false;
+    io.emit('gameOver', {loser: bombOwner});
+    scene.players.getChildren().forEach(p=>{
+        if(p.uid != bombOwner){players[p.playerId].score++};
+    });
+    gameResetTimer = 600;
+
 }
 function getMapOpenTile(map){
     let mlayer = map.getLayer('blocked');
     let tileCount = mlayer.width*mlayer.height;
     let found = false;
     while(found == false){
-        let sTile = map.getTileAt(Phaser.Math.Between(0,mlayer.width),Phaser.Math.Between(0,mlayer.height), true, 'blocked');
+        let sTile = map.getTileAt(Phaser.Math.Between(0,mlayer.width-1),Phaser.Math.Between(0,mlayer.height-1), true, 'blocked');
         if(sTile.index == -1){
             found = true;
             return sTile;
         }
     }
+}
+function addBombTime(t){
+    bombTimer.time  = bombTimer.time + t > bombTimer.max ? bombTimer.max : bombTimer.time+t;
 }
 function handlePlayerInput(self, playerId, input) {
     self.players.getChildren().forEach((player) => {
@@ -202,6 +289,22 @@ function handlePlayerInput(self, playerId, input) {
         }
     });
 }
+function playersTouched(p1,p2){
+    if(transferTimer == 0){
+        //console.log("players touched",bombOwner,p1.uid,p2.uid,p1.playerId,p2.playerId);
+        if(p1.uid == bombOwner){
+            bombOwner = p2.uid;
+            players[p2.playerId].haveBomb = true;
+            players[p1.playerId].haveBomb = false;
+        }else if(p2.uid == bombOwner){
+            bombOwner = p1.uid;
+            players[p1.playerId].haveBomb = true;
+            players[p2.playerId].haveBomb = false;
+        }
+        transferTimer = 120;   
+    }
+    
+}
 function playerWallImpact(player, wall){
     //example for status settings for collision
     player.walltouch = true;
@@ -209,17 +312,19 @@ function playerWallImpact(player, wall){
 function launchGoo(self, playerId, data) {
     self.players.getChildren().forEach((player) => {
         if (playerId === player.playerId) {
-
-            let inputVec2 = players[player.playerId].aim;
-            let newGoo = self.physics.add.sprite(players[player.playerId].x, players[player.playerId].y, 'goo').setOrigin(0.5, 0.5).setDisplaySize(16, 16);  
-            newGoo.nid = gooUID;
-            newGoo.ownerid = playerId;
-            self.globs.add(newGoo);
-            let speed = 130;
-            newGoo.setVelocity(inputVec2[0]*speed, inputVec2[1]*speed);
-            //Emit for all players
-            io.emit('gooFired', {nid:gooUID,ownerid:playerId,x:newGoo.x,y:newGoo.y,rot:newGoo.rotation});
-            gooUID++;
+            if(players[player.playerId].goos > 0){
+                players[player.playerId].goos--;
+                let inputVec2 = players[player.playerId].aim;
+                let newGoo = self.physics.add.sprite(players[player.playerId].x, players[player.playerId].y, 'goo').setOrigin(0.5, 0.5).setDisplaySize(16, 16);  
+                newGoo.nid = gooUID;
+                newGoo.ownerid = playerId;
+                self.globs.add(newGoo);
+                let speed = 200;
+                newGoo.setVelocity(inputVec2[0]*speed, inputVec2[1]*speed);
+                //Emit for all players
+                io.emit('gooFired', {nid:gooUID,ownerid:playerId,x:newGoo.x,y:newGoo.y,rot:newGoo.rotation});
+                gooUID++;
+            }
         }
     });
 }
@@ -227,20 +332,22 @@ function launchMissle(self, playerId, data) {
 
     self.players.getChildren().forEach((player) => {
         if (playerId === player.playerId) {
-
-            let inputVec2 = players[player.playerId].aim;
-            let vecRot = new Phaser.Math.Vector2(inputVec2[0],inputVec2[1]);
-            let newMissle = self.physics.add.sprite(players[player.playerId].x, players[player.playerId].y, 'missle').setOrigin(0.5, 0.5).setDisplaySize(16, 16);
-            //newMissle.nid = self.missles.getLength();
-            newMissle.rotation=vecRot.angle()+Math.PI*(1/2);
-            newMissle.nid = missleUID;
-            newMissle.ownerid = playerId;
-            self.missles.add(newMissle);
-            let speed = 130;
-            newMissle.setVelocity(inputVec2[0]*speed, inputVec2[1]*speed);
-            //Emit for all players
-            io.emit('missleFired', {nid:missleUID,ownerid:playerId,x:newMissle.x,y:newMissle.y,rot:newMissle.rotation});
-            missleUID++;
+            if(players[player.playerId].missles > 0){
+                players[player.playerId].missles--;
+                let inputVec2 = players[player.playerId].aim;
+                let vecRot = new Phaser.Math.Vector2(inputVec2[0],inputVec2[1]);
+                let newMissle = self.physics.add.sprite(players[player.playerId].x, players[player.playerId].y, 'missle').setOrigin(0.5, 0.5).setDisplaySize(16, 16);
+                //newMissle.nid = self.missles.getLength();
+                newMissle.rotation=vecRot.angle()+Math.PI*(1/2);
+                newMissle.nid = missleUID;
+                newMissle.ownerid = playerId;
+                self.missles.add(newMissle);
+                let speed = 130;
+                newMissle.setVelocity(inputVec2[0]*speed, inputVec2[1]*speed);
+                //Emit for all players
+                io.emit('missleFired', {nid:missleUID,ownerid:playerId,x:newMissle.x,y:newMissle.y,rot:newMissle.rotation});
+                missleUID++;
+            }
         }
     });
 }
@@ -249,6 +356,7 @@ function missleHitPlayer(missle, player) {
     if(missle.ownerid != player.playerId){
         explosionQueue.push({nid:missle.nid,x:missle.x,y:missle.y});
         missle.destroy();
+        player.isSlowed = true;
         players[missle.ownerid].score++;
     }
 }
@@ -278,6 +386,26 @@ function gooHitPlayer(goo, player) {
 function splatHitPlayer(splat, player){
     player.isSlowed = true;
 }
+function collectPickup(player,pickup){
+    if(pickup.respawnTimer <= 0){
+        let sTile = getMapOpenTile(gameScene.map);
+        pickup.setPosition(sTile.x*16+8,sTile.y*16+8);
+        pickup.respawnTimer = 300;
+        if(pickup.pickupType == PICKUPTYPES.fuse){
+            //Is the player the bomb owner?
+            if(players[player.playerId].haveBomb){
+                addBombTime(300);
+            }
+        }else if(pickup.pickupType == PICKUPTYPES.missle){
+            players[player.playerId].missles = players[player.playerId].missles < 3 ? players[player.playerId].missles+1 : 3;
+        }else if(pickup.pickupType == PICKUPTYPES.goo){
+            players[player.playerId].goos = players[player.playerId].goos < 3 ? players[player.playerId].goos+1 : 3;
+        }else if(pickup.pickupType == PICKUPTYPES.trap){
+            players[player.playerId].traps = players[player.playerId].traps < 3 ? players[player.playerId].traps+1 : 3;
+        }
+    }
+
+}
 function convertArrayStringToInteger(a) {
     var result = a.map(function (x) {
         return parseInt(x, 10);
@@ -291,7 +419,7 @@ function addPlayer(self, playerInfo) {
     // player.setAngularDrag(100);
     player.setMaxVelocity(200);
     player.playerId = playerInfo.playerId;
-    player.uid = playerInfo.uid;
+    player.uid = newPlayerUID;
     player.isSlowed = false;
     self.players.add(player);
     //Adjust offsets

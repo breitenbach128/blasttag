@@ -1,3 +1,4 @@
+/// <reference path="../../def/phaser.d.ts"/>
 //Globals
 var DEPTH_LAYERS = {
     background: 0,
@@ -5,6 +6,12 @@ var DEPTH_LAYERS = {
     objects: 150,
     players: 200,
     foreground: 300,
+}
+var PICKUPTYPES = {
+    missle:1,
+    goo: 2,
+    trap: 3,
+    fuse: 4,
 }
 
 var HudScene = new Phaser.Class({
@@ -20,25 +27,36 @@ var HudScene = new Phaser.Class({
     },
     preload: function(){
         this.load.image('hud_fuse', 'assets/hud_fuse.png');
-        this.load.spritesheet('particles_fuse', 'assets/particles_fuse.png',{ frameWidth: 4, frameHeight: 4 });
+        this.load.spritesheet('hud_icons', 'assets/hud_icons.png',{ frameWidth: 16, frameHeight: 16 });
+        this.load.spritesheet('particles_fuse', 'assets/particles_fuse.png',{ frameWidth: 4, frameHeight: 4 });        
         this.gameScore = 0;
     },
     create: function ()
     {
-        this.txtScore = this.add.text(50, 50, "Score: "+this.gameScore.toString(), { fontFamily: 'visitorTT1', resolution: 1 })
-        this.fuse = this.add.image(32,32,'hud_fuse').setOrigin(0,0)
-        //Create Fuse Particles
-        this.sparkerMgr = this.add.particles('particles_fuse');
-        this.sparkler = this.sparkerMgr.createEmitter({
-            active:true,
-            frequency: 60, 
-            x: this.fuse.getRightCenter().x,
-            y: this.fuse.getRightCenter().y,
-            speed: { min: 35, max: 45 },
-            scale: { start: 0.3, end: 0.0 },
-            lifespan: 500,
-            blendMode: 'ADD'
-        });
+        this.hud_missles = this.add.sprite(20,24,'hud_icons').setFrame(0).setScale(2);
+        this.hud_goos = this.add.sprite(60,24,'hud_icons').setFrame(1).setScale(2);
+        this.hud_traps = this.add.sprite(100,24,'hud_icons').setFrame(2).setScale(2);
+        this.txt_missles = this.add.text(30, 28, "0", { fontFamily: 'visitorTT1', resolution: 1 })
+        this.txt_goos = this.add.text(70, 28, "0", { fontFamily: 'visitorTT1', resolution: 1 })
+        this.txt_traps = this.add.text(110, 28, "0", { fontFamily: 'visitorTT1', resolution: 1 })
+        this.hud_GameEndOverlay = this.add.rectangle(0,0,960*2,640*2,0x000000,0.5);
+        this.txt_gameReseting = this.add.text(480, 320, "Game Reseting in ...", { fontFamily: 'visitorTT1', resolution: 1 }).setOrigin(0.5,0.5);
+        this.hud_GameEndOverlay.setVisible(false);
+        this.txt_gameReseting.setVisible(false);
+        // this.txtScore = this.add.text(50, 50, "Score: "+this.gameScore.toString(), { fontFamily: 'visitorTT1', resolution: 1 })
+        // this.fuse = this.add.image(32,32,'hud_fuse').setOrigin(0,0)
+        // //Create Fuse Particles
+        // this.sparkerMgr = this.add.particles('particles_fuse');
+        // this.sparkler = this.sparkerMgr.createEmitter({
+        //     active:true,
+        //     frequency: 60, 
+        //     x: this.fuse.getRightCenter().x,
+        //     y: this.fuse.getRightCenter().y,
+        //     speed: { min: 35, max: 45 },
+        //     scale: { start: 0.3, end: 0.0 },
+        //     lifespan: 500,
+        //     blendMode: 'ADD'
+        // });
 
     },
     update:function(){
@@ -88,6 +106,7 @@ function preload() {
     //Load Equipment
     this.load.spritesheet('missle', 'assets/missle.png', {frameWidth: 32, frameHeight: 32});    
     this.load.spritesheet('goo', 'assets/goo.png', { frameWidth: 32, frameHeight: 32 });    
+    this.load.spritesheet('fuse', 'assets/fuse.png', { frameWidth: 16, frameHeight: 16 });
 }
 
 function create() {
@@ -101,9 +120,11 @@ function create() {
     this.missles = this.physics.add.group();
     this.globs = this.physics.add.group();
     this.splats = this.physics.add.group();
+    this.pickups = this.physics.add.group();
     //Create Controls
     this.controls = createControls(self);
-    this.socket.on('currentPlayers', function (players) {
+    this.socket.on('currentPlayers', function (netstate) {
+        let players = netstate.netplayers;
         //Clear the score table and rebuild it.
         //DOM Elements
         var scoreTable = document.getElementById("hudbar1");
@@ -121,6 +142,24 @@ function create() {
             div.innerHTML = "Player:"+players[id].uid;
             div.className = 'playerdata';
             scoreTable.appendChild(div);
+        });
+        netstate.netpickups.forEach(pickup=>{
+            if(pickup.pickupType == PICKUPTYPES.fuse){
+                let newPickup = self.add.image(pickup.x,pickup.y,'fuse');
+                newPickup.nid = pickup.nid;
+                newPickup.respawnTimer = -1;
+                self.pickups.add(newPickup);
+            }else if(pickup.pickupType == PICKUPTYPES.missle){
+                let newPickup = self.add.image(pickup.x,pickup.y,'missle');
+                newPickup.nid = pickup.nid;
+                newPickup.respawnTimer = -1;
+                self.pickups.add(newPickup);
+            }else if(pickup.pickupType == PICKUPTYPES.goo){
+                let newPickup = self.add.image(pickup.x,pickup.y,'goo');
+                newPickup.nid = pickup.nid;
+                newPickup.respawnTimer = -1;
+                self.pickups.add(newPickup);
+            }
         });
     });
 
@@ -140,6 +179,19 @@ function create() {
             if (playerId === player.playerId) {
                 player.nametext.destroy();
                 player.destroy();
+                var scoreDiv = document.getElementById("player_"+playerId);
+                scoreDiv.parentNode.removeChild(scoreDiv);
+            }
+        });
+    });
+    this.socket.on('gameOver', function (data) {
+        self.players.getChildren().forEach(function (player) {
+            if (data.loser === player.uid) {
+                for(let i=0;i<15;i++){
+                    let rX = (Phaser.Math.Between(-128,128));
+                    let rY = (Phaser.Math.Between(-128,128));
+                    createExplosion(self,player.x+rX,player.y+rY);
+                }
             }
         });
     });
@@ -164,6 +216,7 @@ function create() {
                 if (players[id].playerId === player.playerId) {
                     player.setRotation(players[id].rotation);
                     player.setPosition(players[id].x, players[id].y);
+                    player.haveBomb = players[id].haveBomb;
                     //Anims
                     if(players[id].input[1] < 0){
                         player.anims.play('player-walk-up',true);
@@ -183,10 +236,14 @@ function create() {
 
                     }
                 }
+                var div_score = document.getElementById("player_"+players[id].playerId);
+                div_score.innerHTML = "Player:"+players[id].uid+" : "+players[id].score;
             });
             if(players[id].playerId == self.socket.id){
                 let gs = self.hud.gameScore = players[id].score;
-                self.hud.txtScore.setText("Score: "+gs.toString());
+                self.hud.txt_missles.setText(players[id].missles.toString());
+                self.hud.txt_goos.setText(players[id].goos.toString());
+                self.hud.txt_traps.setText(players[id].traps.toString());
             }
         });
         let netMissles = netobject.missles;
@@ -248,7 +305,33 @@ function create() {
             })
             
         }
-
+        let netPickups = netobject.pickups;
+        self.pickups.getChildren().forEach(function (pickup) {
+            netPickups.forEach(p =>{ 
+                if (pickup.nid === p.nid) {
+                    pickup.setPosition(p.x,p.y);
+                    if(p.rspt > 0){
+                        pickup.respawnTimer = p.rspt;
+                        if(pickup.visible){
+                            pickup.setVisible(false);
+                        }
+                    }else{
+                        if(!pickup.visible){
+                            pickup.setVisible(true);
+                        }
+                    }
+                }
+            });
+        })
+        self.cdcTime = netobject.bombTime
+        if(netobject.gameResetTimer > 0){
+            self.hud.hud_GameEndOverlay.setVisible(true);
+            self.hud.txt_gameReseting.setVisible(true);
+            self.hud.txt_gameReseting.setText(netobject.gameResetTimer);
+        }else{
+            if(self.hud.hud_GameEndOverlay.visible){self.hud.hud_GameEndOverlay.setVisible(false);};
+            if(self.hud.txt_gameReseting.visible){self.hud.txt_gameReseting.setVisible(false);};
+        }
 
     });
     //Create Map
@@ -324,24 +407,23 @@ function update() {
     //Save last movement
     this.prevMoveState = moveState;
     let lastPlayerTemp={x:0,y:0};
+    let currentBombOwner = {x:-100,y:-100};
     this.players.getChildren().forEach(function (player) {
         player.nametext.setPosition(player.x,player.y);
         lastPlayerTemp.x = player.x  << 0;
         lastPlayerTemp.y = player.y-24  << 0;
-        
+        if(player.haveBomb){
+            currentBombOwner.x = player.x  << 0;
+            currentBombOwner.y = player.y-24 << 0;
+        }
         
     })
-    this.bombalert.setPosition(lastPlayerTemp.x,lastPlayerTemp.y);
-    let clockdeg = this.cdcTime.map(0,1000,0,360);
+    this.bombalert.setPosition(currentBombOwner.x,currentBombOwner.y);
+    let clockdeg = this.cdcTime.map(0,3000,0,360);
     this.countdownclock.clear();
     this.countdownclock.fillStyle(0xFFFFFF, 0.75);
-    this.countdownclock.slice(lastPlayerTemp.x, lastPlayerTemp.y, 8, Phaser.Math.DegToRad(-90), Phaser.Math.DegToRad(clockdeg-90), true);
+    this.countdownclock.slice(currentBombOwner.x, currentBombOwner.y, 8, Phaser.Math.DegToRad(-90), Phaser.Math.DegToRad(clockdeg-90), true);
     this.countdownclock.fillPath();
-
-    if(this.cdcTime  > 1000){
-        this.cdcTime = 0;
-    }
-    this.cdcTime++;
 
 }
 Number.prototype.map = function (in_min, in_max, out_min, out_max) {
@@ -365,6 +447,7 @@ function displayPlayers(self, playerInfo, sprite) {
     player.direction = 'down';
     player.playerId = playerInfo.playerId;
     player.uid = playerInfo.uid;
+    player.haveBomb = false;
     self.players.add(player);    
     player.body.setSize(20,18,false);
     player.body.setOffset(2,6);

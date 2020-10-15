@@ -53,7 +53,7 @@ var HudScene = new Phaser.Class({
 var config = {
     type: Phaser.AUTO,
     parent: 'game',
-    width: 640,
+    width: 960,
     height: 640,  
     pixelArt: true,  
     physics: {
@@ -104,17 +104,35 @@ function create() {
     //Create Controls
     this.controls = createControls(self);
     this.socket.on('currentPlayers', function (players) {
+        //Clear the score table and rebuild it.
+        //DOM Elements
+        var scoreTable = document.getElementById("hudbar1");
+        scoreTable.innerHTML = "";
+        //Iterate thru new players
         Object.keys(players).forEach(function (id) {
             if (players[id].playerId === self.socket.id) {
                 displayPlayers(self, players[id], 'player');
             } else {
                 displayPlayers(self, players[id], 'player');
             }
+            //Create DIV Tags for players
+            var div = document.createElement('div');
+            div.id = 'player_'+players[id].playerId;
+            div.innerHTML = "Player:"+players[id].uid;
+            div.className = 'playerdata';
+            scoreTable.appendChild(div);
         });
     });
 
     this.socket.on('newPlayer', function (playerInfo) {
         displayPlayers(self, playerInfo, 'player');
+        //DOM Elements
+        var scoreTable = document.getElementById("hudbar1");
+        var div = document.createElement('div');
+        div.id = 'player_'+playerInfo.playerId;
+        div.innerHTML = "Player:"+playerInfo.uid;
+        div.className = 'playerdata';
+        scoreTable.appendChild(div);
     });
 
     this.socket.on('disconnect', function (playerId) {

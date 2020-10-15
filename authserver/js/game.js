@@ -9,10 +9,14 @@ var bombTimer = {time: 3000,max:3000};
 var gameStarted = false;
 var bombOwner = -1;//Player who owns the bomb
 
+var PICKUPTYPES = {
+    fuse: 4,
+}
+
 const config = {
     type: Phaser.HEADLESS,
     parent: 'game',
-    width: 640,
+    width: 960,
     height: 640,
     autoFocus: false,
     physics: {
@@ -37,6 +41,7 @@ function preload() {
     this.load.spritesheet('missle', 'assets/missle.png', { frameWidth: 32, frameHeight: 32 });
     this.load.spritesheet('goo', 'assets/goo.png', { frameWidth: 32, frameHeight: 32 });    
     this.load.spritesheet('goosplat', 'assets/goosplat16.png', { frameWidth: 16, frameHeight: 16 });
+    this.load.spritesheet('fuse', 'assets/fuse.png', { frameWidth: 16, frameHeight: 16 });
 }
 
 function create() {
@@ -75,6 +80,7 @@ function create() {
         socket.broadcast.emit('newPlayer', players[socket.id]);
 
         //If at least two players, run start game sequence.
+        console.log("Player count",self.players.getLength());
 
         socket.on('disconnect', function () {
             console.log('user disconnected');
@@ -85,6 +91,7 @@ function create() {
             // emit a message to all players to remove this player
             io.emit('disconnect', socket.id);
             //If down to 1 player, reset game to unstarted status, and stop bomb timers.
+            
         });
         socket.on('playerInput', function (inputData) {
             intData = convertArrayStringToInteger(inputData);
@@ -97,7 +104,7 @@ function create() {
             launchGoo(self, socket.id, data);
         });
     });
-    this.physics.world.setBounds(0, 0, 320, 320);
+    this.physics.world.setBounds(0, 0, 480, 320);
     //Create Map
     this.map = this.make.tilemap({ key: 'map1' });
     // let tsImage = this.map.addTilesetImage('tileset','tileset',16,16,0,0);
@@ -112,8 +119,16 @@ function create() {
     });
     //Object Spawners
     //Fuses and pickups
-
-
+    //Create 5 on the map in random locations.
+    //When they are picked up, hide them, deactivate them for 300 frames, and then move them to another random location.
+    for(let i=0;i<5;i++){
+        let spawnTile = getMapOpenTile(this.map);
+        //I need a check to ensure those tiles don't have something already on them;
+        let newFuse = this.add.image(spawnTile.x*16+8,spawnTile.y*16+8,'fuse');
+        newFuse.pickupType = PICKUPTYPES.fuse;
+        newFuse.respawnTimer = -1;//How long until it becomes active again. -1 is active
+        this.pickups.add(newFuse);
+    }
     //setup Collision
     this.physics.add.collider(this.players, this.walls, playerWallImpact);
     this.physics.add.collider(this.missles, this.walls, missleHit);
@@ -164,7 +179,18 @@ function update() {
     explosionQueue = [];
     splatQueue = [];
 }
-
+function getMapOpenTile(map){
+    let mlayer = map.getLayer('blocked');
+    let tileCount = mlayer.width*mlayer.height;
+    let found = false;
+    while(found == false){
+        let sTile = map.getTileAt(Phaser.Math.Between(0,mlayer.width),Phaser.Math.Between(0,mlayer.height), true, 'blocked');
+        if(sTile.index == -1){
+            found = true;
+            return sTile;
+        }
+    }
+}
 function handlePlayerInput(self, playerId, input) {
     self.players.getChildren().forEach((player) => {
         if (playerId === player.playerId) {
@@ -242,6 +268,10 @@ function gooHit(goo, wall) {
 function gooHitPlayer(goo, player) {
     if(goo.ownerid != player.playerId){
         splatQueue.push({nid:goo.nid,x:goo.x,y:goo.y});
+        let splatEllipse = gameScene.add.ellipse(goo.x,goo.y,32,32,0xFFFFFF);
+        splatEllipse.nid = goo.nid;
+        splatEllipse.lifespan = 300;
+        gameScene.splats.add(splatEllipse);
         goo.destroy();
     }
 }

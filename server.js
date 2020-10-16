@@ -3,13 +3,13 @@ const jsdom = require('jsdom');
 const express = require('express');
 const app = express();
 const server = require('http').Server(app);
-const io = require('socket.io').listen(server);
+const io = require('socket.io').listen(server,{});
 // const Datauri = require('datauri'); 
 // const datauri = new Datauri();
 const DatauriParser = require('datauri/parser');
 const parser = new DatauriParser();
-const { JSDOM } = jsdom;
- 
+//const { JSDOM } = jsdom;
+
 app.use(express.static(__dirname + '/public'));
  
 app.get('/', function (req, res) {
@@ -21,6 +21,7 @@ app.get('/', function (req, res) {
 // });
 
 function setupAuthoritativePhaser() {
+  const { JSDOM } = jsdom;
   JSDOM.fromFile(path.join(__dirname, 'authserver/index.html'), {
     // To run the scripts in the html file
     runScripts: "dangerously",
